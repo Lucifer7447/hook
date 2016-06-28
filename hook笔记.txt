@@ -1,0 +1,160 @@
+#include "Subclass.h"
+ 
+/****************************************************************************
+子类化“另存为”对话框，
+用于使对话框隐藏和禁止文件名edit框输入字符串
+****************************************************************************/
+HWND    g_SaveWnd=NULL;
+class CSaveWnd :public CSubclass
+{
+public:    
+    LRESULT WindowProc(UINT message,WPARAM wParam,LPARAM lParam);
+};
+ 
+LRESULT CSaveWnd::WindowProc(UINT message,WPARAM wParam,LPARAM lParam)
+{
+    switch(message)
+    {
+    case WM_WINDOWPOSCHANGING:
+        {
+            trace("WM_WINDOWPOSCHANGING");
+ 
+/*
+            //禁用标题输入combobox
+            ::EnableWindow(::GetDlgItem(m_hWnd,1148),false);
+*/
+        }
+        break;
+    }
+    return ::CallWindowProc(OldWndProc,m_hWnd, message, wParam, lParam); 
+}
+ 
+ 
+ 
+/***************************************************************************
+子类化窗口 使用thunk技术
+****************************************************************************/
+class CSubEdit :public CSubclass
+{
+public:
+    LRESULT WindowProc(UINT message,WPARAM wParam,LPARAM lParam);
+};
+ 
+LRESULT CSubEdit::WindowProc(UINT message,WPARAM wParam,LPARAM lParam)
+{
+    switch(message)
+    {
+    case WM_CHAR:
+        trace(wParam);
+        return true;
+        break;
+    }
+    return ::CallWindowProc(OldWndProc,m_hWnd, message, wParam, lParam); 
+}
+ 
+ 
+ 
+/****************************************************************************
+CBTProc
+****************************************************************************/
+void UnCBTProcHook();
+HHOOK    g_hCBTProc=NULL;
+LRESULT CALLBACK CBTProc(int nCode,WPARAM wParam, LPARAM lParam)
+{ 
+    if (nCode<0 )
+        return CallNextHookEx(g_hCBTProc,nCode,wParam,lParam); //传递钩子信息 
+ 
+    switch (  nCode  )  
+    {
+        //━━━━━━━━━子类化对话框━━━━━━━━━━━
+    case HCBT_ACTIVATE: 
+        {
+            if (g_SaveWnd==NULL)
+            {
+                HWND hWnd=(HWND)wParam;
+                TCHAR WindowText[30]={0};
+                ::GetWindowText(hWnd,WindowText,sizeof(WindowText)/sizeof(TCHAR));
+ 
+                //终于找到弹出保存对话框
+                if (_tcscmp(WindowText,_T("打开"))==0 )
+                {
+                    //子类化另存为窗口
+                    g_SaveWnd=hWnd;
+                    CSaveWnd* mywnd=new CSaveWnd();
+                    mywnd->SubclassWindow(hWnd) ;
+                }
+            }
+        }
+        break;    
+        //━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 
+ 
+    case HCBT_CREATEWND:
+        {
+            HWND hWnd=(HWND)wParam;
+             
+            TCHAR ClassName[200]={0};
+            ::GetClassName(hWnd,ClassName,sizeof(ClassName)/sizeof(TCHAR));
+ 
+            //用类名来判断窗口是否我们需要的
+            DWORD dwClassName=(DWORD)((CBT_CREATEWND*)lParam)->lpcs->lpszClass;
+ 
+            trace(ClassName,dwClassName);
+ 
+            //子类化edit控件
+            if (dwClassName==1233136)
+            {
+                trace("-------------edit-----------------");
+                CSubEdit* mywnd=new CSubEdit();
+                mywnd->SubclassWindow(hWnd) ;
+ 
+                break;
+            }
+        }
+        break;
+    }
+ 
+    return CallNextHookEx(g_hCBTProc,nCode,wParam,lParam); //传递钩子信息      
+} 
+ 
+ 
+void SetCBTProcHook()
+{
+    if (g_hCBTProc)
+        return;
+ 
+    g_hCBTProc=SetWindowsHookEx(WH_CBT,CBTProc,NULL,GetCurrentThreadId());
+    if ( g_hCBTProc )
+    {
+        trace("SetWindowsHookEx CBTProc succeed");
+    }
+    else
+        trace("SetWindowsHookEx CBTProc failed");
+}
+  
+void UnCBTProcHook()
+{
+    if (g_hCBTProc==NULL)
+        return;
+ 
+    if ( UnhookWindowsHookEx(g_hCBTProc) )
+    {
+        g_hCBTProc=NULL;
+        trace("UnhookWindowsHookEx CBTProc succeed");
+    }
+    else
+        trace("UnhookWindowsHookEx CBTProc failed");
+} 
+ 
+ 
+void CDemoDlg::OnButton1() 
+{
+    //这一句很重要，在SetCBTProcHook()前一定要调用trace，否则程序会
+    //无端出错，但在release版本里不需要trace，所以就不会有问题了。
+    trace("打开trace窗口");
+ 
+    SetCBTProcHook();
+ 
+    CFileDialog Dlg(true);
+    Dlg.DoModal();
+}
